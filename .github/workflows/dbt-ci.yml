@@ -9,10 +9,29 @@ jobs:
   dbt-run:
     runs-on: ubuntu-latest
     environment: DBT_BTC
+    env:
+      BRANCH_NAME: ${{ github.head_ref || github.ref_name }}  # PR vs push
 
     steps:
       - name: Checkout repo
         uses: actions/checkout@v3
+
+      - name: Decide DBT_TARGET from branch
+        shell: bash
+        run: |
+          echo "PR BASE BRANCH = ${{ github.base_ref }}"
+          echo "PR HEAD BRANCH = ${{ github.head_ref }}"
+
+          if [[ "${{ github.base_ref }}" == "main" || "${{ github.base_ref }}" == "master" ]]; then
+            TARGET=prod
+          elif [[ "${{ github.base_ref }}" == dev2* ]]; then
+            TARGET=dev2
+          else
+            TARGET=dev
+          fi
+
+          echo "DBT_TARGET=$TARGET" >> $GITHUB_ENV
+          echo "DBT_TARGET=$TARGET" | tee -a $GITHUB_ENV
 
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -40,8 +59,8 @@ jobs:
       - name: Install dbt deps
         run: dbt deps
 
-      - name: Run dbt debug
-        run: dbt debug
+      - name: dbt debug
+        run: dbt debug --target "${{ env.DBT_TARGET }}"
 
-      - name: Run dbt
-        run: dbt run
+      - name: dbt run
+        run: dbt run --target "${{ env.DBT_TARGET }}"
