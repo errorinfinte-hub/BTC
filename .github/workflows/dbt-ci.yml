@@ -1,8 +1,14 @@
 name: dbt CI
 
-# Map git branch → dbt target (must match outputs/targets in ~/.dbt profiles.yml in CI secrets).
-# - PRs: target follows the base branch (environment you merge into).
-# - Push: target follows the branch that received the push.
+# Map git branch → dbt target (must match outputs in secrets DBT_PROFILES_YML).
+#
+# Two branch concepts:
+#   - PUSH_BRANCH: branch that introduced the commits (PR head, or the branch on push).
+#   - MERGE_BRANCH: branch that receives the merge (PR base), or the same branch on push.
+#
+# Rule:
+#   - pull_request → DBT_TARGET from MERGE_BRANCH (base): validate against the env you merge into.
+#   - push         → DBT_TARGET from MERGE_BRANCH (= ref): validate against the env that was updated.
 
 on:
   pull_request:
@@ -27,18 +33,32 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Resolve DBT_TARGET from branch
+      - name: Resolve DBT_TARGET from push + merge branches
         shell: bash
         run: |
-          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
-            REF="${{ github.base_ref }}"
-            echo "Event: pull_request — using base branch (merge target): $REF"
+          EVENT="${{ github.event_name }}"
+
+          if [[ "$EVENT" == "pull_request" ]]; then
+            PUSH_BRANCH="${{ github.head_ref }}"
+            MERGE_BRANCH="${{ github.base_ref }}"
+            REF_FOR_TARGET="$MERGE_BRANCH"
+            echo "Event: pull_request"
+            echo "  PUSH_BRANCH (head):  $PUSH_BRANCH"
+            echo "  MERGE_BRANCH (base): $MERGE_BRANCH"
+            echo "  → DBT_TARGET follows MERGE_BRANCH (where this PR lands)"
           else
-            REF="${{ github.ref_name }}"
-            echo "Event: push — using branch: $REF"
+            PUSH_BRANCH="${{ github.ref_name }}"
+            MERGE_BRANCH="${{ github.ref_name }}"
+            REF_FOR_TARGET="$MERGE_BRANCH"
+            echo "Event: push"
+            echo "  PUSH_BRANCH / MERGE_BRANCH (ref): $PUSH_BRANCH"
+            echo "  → DBT_TARGET follows the branch that was pushed"
           fi
 
-          case "$REF" in
+          echo "PUSH_BRANCH=$PUSH_BRANCH" >> "$GITHUB_ENV"
+          echo "MERGE_BRANCH=$MERGE_BRANCH" >> "$GITHUB_ENV"
+
+          case "$REF_FOR_TARGET" in
             main|master)
               TARGET=prod
               ;;
@@ -49,7 +69,7 @@ jobs:
               TARGET=dev
               ;;
             *)
-              echo "::error::No dbt target mapping for branch '$REF'. Add it to the case in dbt-ci.yml."
+              echo "::error::No dbt target mapping for MERGE_BRANCH/ref '$REF_FOR_TARGET'. Add it to the case in dbt-ci.yml."
               exit 1
               ;;
           esac
