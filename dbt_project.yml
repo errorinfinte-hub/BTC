@@ -33,5 +33,8 @@ models:
   BTC:
     # Config indicated by + and applies to all files under models/example/
     marts:
-      +materialized: view
+      +materialized: table
+      +post-hook:
+        - "COMMENT ON TABLE {{ this }} IS 'This table was created by dbt';"
+        - "{{ create_latest_version_view() }}"
     
